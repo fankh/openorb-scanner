@@ -48,6 +48,13 @@ enum Commands {
         #[arg(long)]
         no_vuln: bool,
 
+        /// Scan mode: port, service, or full (default: full)
+        /// - port: Open port discovery only (fastest)
+        /// - service: Port scan + banner grab (application name & version)
+        /// - full: Port scan + banner grab + CVE matching (default)
+        #[arg(long, default_value = "full")]
+        mode: String,
+
         /// Output file (JSON)
         #[arg(short, long)]
         output: Option<String>,
@@ -301,13 +308,14 @@ async fn main() -> Result<()> {
             top_ports,
             all_ports,
             no_vuln,
+            mode,
             output,
             timeout,
             method,
             rate,
             json,
         } => {
-            run_scan(target, ports, top_ports, all_ports, no_vuln, output, timeout, &method, rate, json).await?;
+            run_scan(target, ports, top_ports, all_ports, no_vuln, &mode, output, timeout, &method, rate, json).await?;
         }
 
         Commands::Sync {
@@ -403,12 +411,17 @@ async fn run_scan(
     top_ports: Option<usize>,
     all_ports: bool,
     no_vuln: bool,
+    mode: &str,
     output: Option<String>,
     timeout: u64,
     method: &str,
     rate: u32,
     json_output: bool,
 ) -> Result<()> {
+    // Parse scan mode
+    let detect_services = mode != "port";
+    let check_cve = mode == "full" && !no_vuln;
+
     // Parse scan method
     let scan_method: ScanMethod = method.parse().unwrap_or(ScanMethod::Auto);
 
@@ -429,6 +442,14 @@ async fn run_scan(
         if let Some(ref p) = port_list {
             println!("\x1b[2mPorts: {} ports\x1b[0m", p.len());
         }
+
+        // Show scan mode
+        let mode_display = match mode {
+            "port" => "\x1b[33mPort Discovery Only\x1b[0m",
+            "service" => "\x1b[36mPort + Service Detection\x1b[0m",
+            _ => "\x1b[32mFull Scan (Port + Service + CVE)\x1b[0m",
+        };
+        println!("\x1b[2mMode: {}\x1b[0m", mode_display);
 
         // Show scan method
         let method_display = match scan_method {
@@ -466,13 +487,13 @@ async fn run_scan(
     // Run discovery
     let discovery = NetworkDiscovery::with_config(timeout, 3000, 500)
         .with_scan_method(scan_method);
-    let result = discovery.discover(&target, port_list, true).await?;
+    let result = discovery.discover(&target, port_list, detect_services).await?;
 
     // JSON output mode - output full result and exit
     if json_output {
         // Vulnerability scan if needed
         let mut all_vulns = Vec::new();
-        if !no_vuln && !result.hosts.is_empty() {
+        if check_cve && !result.hosts.is_empty() {
             let cve_db = CveDatabase::new("cve_database.db")?;
             let scanner = VulnerabilityScanner::new(&cve_db);
             for host in &result.hosts {
@@ -482,49 +503,79 @@ async fn run_scan(
             }
         }
 
-        // Build JSON output with full service metadata
-        let json_report = serde_json::json!({
-            "target": target,
-            "scan_start": result.scan_start,
-            "scan_end": result.scan_end,
-            "total_hosts": result.total_hosts,
-            "total_open_ports": result.total_open_ports,
-            "scan_method": method,
-            "hosts": result.hosts.iter().map(|host| {
-                serde_json::json!({
-                    "ip": host.ip.to_string(),
-                    "hostname": host.hostname,
-                    "open_ports": host.open_ports,
-                    "services": host.services.iter().map(|(port, svc)| {
+        // Build JSON output based on scan mode
+        let json_report = if mode == "port" {
+            // Port-only mode: minimal output
+            serde_json::json!({
+                "target": target,
+                "scan_start": result.scan_start,
+                "scan_end": result.scan_end,
+                "scan_mode": "port",
+                "scan_method": method,
+                "total_hosts": result.total_hosts,
+                "total_open_ports": result.total_open_ports,
+                "hosts": result.hosts.iter().map(|host| {
+                    serde_json::json!({
+                        "ip": host.ip.to_string(),
+                        "hostname": host.hostname,
+                        "open_ports": host.open_ports,
+                    })
+                }).collect::<Vec<_>>()
+            })
+        } else {
+            // Service or full mode: include service details
+            let mut report = serde_json::json!({
+                "target": target,
+                "scan_start": result.scan_start,
+                "scan_end": result.scan_end,
+                "scan_mode": mode,
+                "scan_method": method,
+                "total_hosts": result.total_hosts,
+                "total_open_ports": result.total_open_ports,
+                "hosts": result.hosts.iter().map(|host| {
+                    serde_json::json!({
+                        "ip": host.ip.to_string(),
+                        "hostname": host.hostname,
+                        "open_ports": host.open_ports,
+                        "services": host.services.iter().map(|(port, svc)| {
+                            serde_json::json!({
+                                "port": port,
+                                "service": svc.service,
+                                "version": svc.version,
+                                "product": svc.product,
+                                "os": svc.os,
+                                "banner": svc.banner,
+                                "confidence": svc.confidence,
+                                "method": svc.method,
+                                "metadata": svc.metadata,
+                                "parsed_version": svc.parsed_version,
+                            })
+                        }).collect::<Vec<_>>()
+                    })
+                }).collect::<Vec<_>>()
+            });
+
+            // Add vulnerabilities only in full mode
+            if check_cve {
+                report["vulnerabilities"] = serde_json::json!(
+                    all_vulns.iter().map(|v| {
                         serde_json::json!({
-                            "port": port,
-                            "service": svc.service,
-                            "version": svc.version,
-                            "product": svc.product,
-                            "os": svc.os,
-                            "banner": svc.banner,
-                            "confidence": svc.confidence,
-                            "method": svc.method,
-                            "metadata": svc.metadata,
-                            "parsed_version": svc.parsed_version,
+                            "host": v.host.to_string(),
+                            "port": v.port,
+                            "service": v.service,
+                            "version": v.version,
+                            "cve_id": v.vulnerability.cve_id,
+                            "severity": v.vulnerability.severity.to_string(),
+                            "cvss_score": v.vulnerability.cvss_score,
+                            "description": v.vulnerability.description,
+                            "confidence": v.confidence.to_string(),
                         })
                     }).collect::<Vec<_>>()
-                })
-            }).collect::<Vec<_>>(),
-            "vulnerabilities": all_vulns.iter().map(|v| {
-                serde_json::json!({
-                    "host": v.host.to_string(),
-                    "port": v.port,
-                    "service": v.service,
-                    "version": v.version,
-                    "cve_id": v.vulnerability.cve_id,
-                    "severity": v.vulnerability.severity.to_string(),
-                    "cvss_score": v.vulnerability.cvss_score,
-                    "description": v.vulnerability.description,
-                    "confidence": v.confidence.to_string(),
-                })
-            }).collect::<Vec<_>>()
-        });
+                );
+            }
+
+            report
+        };
 
         println!("{}", serde_json::to_string_pretty(&json_report)?);
         return Ok(());
@@ -550,19 +601,27 @@ async fn run_scan(
                 host.hostname.as_deref().unwrap_or("unknown")
             );
 
-            for (port, svc) in &host.services {
-                let version = svc.version.as_deref().unwrap_or("");
-                println!(
-                    "  \x1b[32m{}/tcp\x1b[0m  {:15} {}",
-                    port, svc.service, version
-                );
+            if detect_services {
+                // Service mode: show service name + version
+                for (port, svc) in &host.services {
+                    let version = svc.version.as_deref().unwrap_or("");
+                    println!(
+                        "  \x1b[32m{}/tcp\x1b[0m  {:15} {}",
+                        port, svc.service, version
+                    );
+                }
+            } else {
+                // Port-only mode: show just port numbers
+                for port in &host.open_ports {
+                    println!("  \x1b[32m{}/tcp\x1b[0m  open", port);
+                }
             }
         }
     }
 
-    // Vulnerability scan
+    // Vulnerability scan (only in full mode)
     let mut all_vulns = Vec::new();
-    if !no_vuln && !result.hosts.is_empty() {
+    if check_cve && !result.hosts.is_empty() {
         println!("\n\x1b[1;34mChecking vulnerabilities...\x1b[0m");
 
         let cve_db = CveDatabase::new("cve_database.db")?;
