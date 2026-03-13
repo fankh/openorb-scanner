@@ -264,7 +264,7 @@ impl CveDatabase {
                 exploit_available INTEGER DEFAULT 0, -- Public exploit exists
                 -- Metadata
                 cwe_id TEXT,                   -- CWE classification
-                references TEXT,               -- JSON array of reference URLs
+                "references" TEXT,             -- JSON array of reference URLs
                 last_sync TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -1040,7 +1040,7 @@ impl CveDatabase {
             (cve_id, severity, cvss_score, cvss_vector, description, product, vendor,
              version_start, version_end, version_start_type, version_end_type, fix_version,
              published, modified, epss_score, epss_percentile, is_kev, exploit_available,
-             cwe_id, references)
+             cwe_id, "references")
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
             params![
@@ -1210,7 +1210,7 @@ impl CveDatabase {
             SELECT cve_id, severity, cvss_score, cvss_vector, description, product, vendor,
                    version_start, version_end, version_start_type, version_end_type, fix_version,
                    published, modified, epss_score, epss_percentile, is_kev, exploit_available,
-                   cwe_id, references
+                   cwe_id, "references"
             FROM vulnerabilities
             ORDER BY cvss_score DESC
             "#,
