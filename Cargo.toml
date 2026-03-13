@@ -2,7 +2,7 @@
 name = "openorb"
 version = "0.1.0"
 edition = "2021"
-description = "OpenOrb - High-Performance Network Vulnerability Scanner"
+description = "Open-source network vulnerability scanner — port scanning, banner grabbing, CVE matching (NVD/CPE/EPSS), active testing. Nmap + Nessus alternative in Rust."
 authors = ["Seekers Lab"]
 license = "MIT"
 repository = "https://github.com/fankh/openorb-scanner"

@@ -1,93 +1,91 @@
-# OpenOrb
+# OpenOrb — Open-Source Network Vulnerability Scanner
 
-A high-performance network vulnerability scanner written in Rust.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 
-## Features
+**OpenOrb** is an open-source, high-performance network vulnerability scanner written in Rust. It combines port scanning, service/banner detection, and CVE matching in a single tool — an open-source alternative to Nmap + Nessus for vulnerability assessment.
 
-- **Network Scanning** - TCP connect, SYN, and AF_PACKET zero-copy scanning (1-5M pps)
-- **Banner Grabbing** - Service detection for SSH, HTTP, FTP, SMB, MySQL, PostgreSQL, Redis, MongoDB, and more
-- **CVE Matching** - NVD database sync with CPE-based version matching and risk scoring
-- **Active Testing** - YAML-based vulnerability probes (Heartbleed, FTP anonymous, Redis noauth, etc.)
-- **3-Step Pipeline** - Discover ports, grab banners, match CVEs with persistent scan history
-- **REST API** - Axum-based API server for scan management and CVE search
-- **Endpoint Agent** - Cross-platform software inventory collection (dpkg, rpm, pip, npm, Windows Registry)
-- **Plugin System** - Extensible protocol detection (Modbus ICS/SCADA included)
+**Key highlights:**
+- Scan up to **1–5 million packets per second** using AF_PACKET + MMAP zero-copy (Linux)
+- Detect services via **banner grabbing** (SSH, HTTP, FTP, SMB, MySQL, PostgreSQL, Redis, MongoDB, and more)
+- Match discovered services to **CVEs from NVD** with CPE-based version comparison and CVSS/EPSS risk scoring
+- Run **active vulnerability tests** (Heartbleed, anonymous FTP, Redis/MongoDB no-auth, weak SSL ciphers)
+- **REST API** for integration with dashboards, SIEM, and CI/CD pipelines
+- **Endpoint agent** for software inventory collection across Linux, macOS, and Windows
 
-## Installation
+---
+
+## Why OpenOrb?
+
+| Feature | OpenOrb | Nmap | Masscan | Nessus |
+|---------|---------|------|---------|--------|
+| Port scanning | TCP Connect, SYN, AF_PACKET | TCP, SYN, UDP | SYN only | Agent-based |
+| Max throughput | 1–5M pps | ~100K pps | 10M+ pps | N/A |
+| Banner grabbing | Built-in | NSE scripts | No | Built-in |
+| CVE matching | NVD + CPE + EPSS | No | No | Proprietary DB |
+| Active vuln tests | YAML-based probes | NSE scripts | No | Plugins |
+| REST API | Built-in (Axum) | XML output | No | Proprietary |
+| Open source | MIT | GPL | AGPL | Commercial |
+| Single binary | 9 MB | ~25 MB + scripts | 0.1 MB | ~1 GB |
+| Language | Rust | C/Lua | C | Closed |
+
+---
+
+## Quick Start
+
+### Installation
 
 ```bash
-# Clone and build
+# Build from source (requires Rust 1.70+)
 git clone https://github.com/fankh/openorb-scanner.git
 cd openorb-scanner
 cargo build --release
 
-# Binaries are at:
-#   target/release/openorb        (9 MB - main scanner)
-#   target/release/openorb-agent  (4 MB - endpoint agent)
+# Binaries:
+#   target/release/openorb        (9 MB — main scanner)
+#   target/release/openorb-agent  (4 MB — endpoint agent)
 ```
 
-## Scan Methods
+### First Scan
 
-| Method | Throughput | Privileges | Command |
-|--------|-----------|------------|---------|
-| TCP Connect | ~500 ports/s | None | `--method connect` |
-| SYN Scan | ~1K pps | Root | `--method syn` |
-| AF_PACKET | 1-5M pps | Root (Linux) | `--method afpacket` or `--method fast` |
-| Auto | Best available | Auto-detect | `--method auto` (default) |
+```bash
+# Scan top 100 ports on a target
+openorb scan 192.168.1.1 --top-ports 100
+
+# Full port scan with JSON output
+openorb scan 10.0.0.0/24 --all-ports --json -o results.json
+
+# Fast scan with AF_PACKET (Linux, requires root)
+sudo openorb scan 10.0.0.1 --all-ports --method afpacket --rate 100000
+```
 
 ---
 
-## Usage Manual
+## Scan Methods
 
-### Command Overview
-
-```
-$ openorb --help
-OpenOrb - Network Vulnerability Scanner
-
-Usage: openorb [OPTIONS] <COMMAND>
-
-Commands:
-  scan      Scan target for open ports and vulnerabilities
-  sync      Sync CVE database from NVD or external source
-  search    Search CVE database
-  server    Start API server
-  discover  Step 1: Fast port discovery (no banner grab)
-  grab      Step 2: Banner grab for discovered ports
-  match     Step 3: Match CVEs for discovered services
-  scans     List recent scans
-  status    Show scan status and results
-  test      Run active vulnerability tests
-  help      Print this message or the help of the given subcommand(s)
-
-Options:
-  -d, --debug    Enable debug logging
-  -h, --help     Print help
-  -V, --version  Print version
-```
-
-### 1. Quick Scan (All-in-One)
-
-Scans ports, grabs banners, detects services, and checks CVEs in a single command.
+| Method | Speed | Privileges | Use Case |
+|--------|-------|------------|----------|
+| **TCP Connect** | ~500 ports/s | None | Default, works everywhere |
+| **SYN Scan** | ~1K pps | Root | Stealthier, half-open scan |
+| **AF_PACKET** | 1–5M pps | Root (Linux) | Large network sweeps, masscan-level speed |
+| **Auto** | Best available | Auto-detect | Picks fastest method available |
 
 ```bash
-openorb scan <TARGET> [OPTIONS]
+openorb scan TARGET --method connect    # No root needed
+openorb scan TARGET --method syn        # Raw socket SYN scan
+openorb scan TARGET --method afpacket   # Zero-copy ring buffer (Linux)
+openorb scan TARGET --method auto       # Auto-detect best method (default)
 ```
 
-**Options:**
-```
-  -p, --ports <PORTS>          Ports to scan (e.g., 22,80,443 or 1-1000)
-      --top-ports <TOP_PORTS>  Scan top N common ports
-      --all-ports              Scan all 65535 ports
-      --no-vuln                Skip vulnerability check
-  -o, --output <OUTPUT>        Output file (JSON)
-      --timeout <TIMEOUT>      Port scan timeout in ms [default: 1000]
-  -m, --method <METHOD>        Scan method: connect, syn, afpacket, auto [default: auto]
-      --rate <RATE>            Packets per second rate limit [default: 1000]
-      --json                   Output as JSON
-```
+---
 
-**Example:**
+## Features
+
+### Port Scanning & Service Detection
+
+OpenOrb discovers open ports and identifies running services through banner grabbing. It parses version strings into structured data for accurate CVE matching.
+
 ```
 $ openorb scan 127.0.0.1 --top-ports 25 --method connect
 
@@ -113,10 +111,15 @@ Checking vulnerabilities...
 No vulnerabilities found
 ```
 
-**JSON Output:**
-```
-$ openorb scan 127.0.0.1 --top-ports 25 --method connect --json
+### JSON Output
 
+Structured JSON output for integration with other tools and pipelines:
+
+```bash
+openorb scan 127.0.0.1 --top-ports 25 --method connect --json
+```
+
+```json
 {
   "hosts": [
     {
@@ -149,22 +152,6 @@ $ openorb scan 127.0.0.1 --top-ports 25 --method connect --json
             "patch": 3,
             "distro": "Ubuntu"
           }
-        },
-        {
-          "port": 443,
-          "service": "http",
-          "product": "nginx",
-          "confidence": 0.85
-        },
-        {
-          "port": 5432,
-          "service": "postgresql",
-          "confidence": 0.9
-        },
-        {
-          "port": 8080,
-          "service": "http",
-          "confidence": 0.5
         }
       ]
     }
@@ -176,13 +163,43 @@ $ openorb scan 127.0.0.1 --top-ports 25 --method connect --json
 }
 ```
 
-### 2. Pipeline Mode (3-Step Scan)
+### CVE Database & Vulnerability Matching
 
-For large scans, use the 3-step pipeline to separate port discovery, banner grabbing, and CVE matching. Results are persisted in SQLite between steps.
+Sync the NVD (National Vulnerability Database) and match discovered services against known CVEs using CPE (Common Platform Enumeration) version comparison:
 
-#### Step 1: Discover Ports
+```bash
+# Sync last 30 days of CVEs from NVD
+openorb sync --days 30
 
-Fast port discovery without banner grabbing.
+# Sync all sources (NVD + CISA KEV + EPSS scores)
+openorb sync --all
+
+# Search CVE database
+openorb search nginx --version 1.26.3
+openorb search apache --severity high
+```
+
+### 3-Step Pipeline for Large Scans
+
+For large-scale network assessments, OpenOrb supports a 3-step pipeline with SQLite persistence between steps. This allows you to scan thousands of hosts, then enrich results incrementally:
+
+```bash
+# Step 1: Fast port discovery
+openorb discover 10.0.0.0/24 --top-ports 100 --method afpacket
+# → Scan ID: 01fa9dc0-...
+
+# Step 2: Banner grab discovered ports
+openorb grab 01fa9dc0-...
+
+# Step 3: Match CVEs
+openorb match 01fa9dc0-...
+
+# View scan history
+openorb scans
+openorb status 01fa9dc0-...
+```
+
+**Pipeline output example:**
 
 ```
 $ openorb discover 127.0.0.1 --top-ports 25 --method connect
@@ -200,10 +217,6 @@ Discovery Complete!
 Next step:
   openorb grab 01fa9dc0-4f2a-4fab-9941-06dab7ade7cc
 ```
-
-#### Step 2: Banner Grab
-
-Grab banners and detect services for previously discovered ports.
 
 ```
 $ openorb grab 01fa9dc0-4f2a-4fab-9941-06dab7ade7cc
@@ -224,59 +237,9 @@ Next step:
   openorb match 01fa9dc0-4f2a-4fab-9941-06dab7ade7cc
 ```
 
-#### Step 3: CVE Matching
+### Active Vulnerability Testing
 
-Match detected services against the CVE database.
-
-```
-$ openorb match 01fa9dc0-4f2a-4fab-9941-06dab7ade7cc
-
-[Step 3] CVE Matching
-  Scan ID: 01fa9dc0-4f2a-4fab-9941-06dab7ade7cc
-  Min severity: LOW
-  Services: 4 to check
-
-No vulnerabilities found!
-```
-
-### 3. Scan History
-
-#### List Recent Scans
-
-```
-$ openorb scans
-
-Recent Scans:
-------------------------------------------------------------------------------------------
-SCAN ID                              TARGET         STEP  PORTS  SVCS  VULNS  STATUS
-------------------------------------------------------------------------------------------
-01fa9dc0-4f2a-4fab-9941-06dab7ade7cc 127.0.0.1         3      4     4      0  completed
-```
-
-#### Show Scan Details
-
-```
-$ openorb status 01fa9dc0-4f2a-4fab-9941-06dab7ade7cc
-
-Scan Status:
-  Scan ID: 01fa9dc0-4f2a-4fab-9941-06dab7ade7cc
-  Target: 127.0.0.1
-  Step: 3/3
-  Status: completed
-  Started: 2026-03-13 06:45:34
-  Completed: 2026-03-13 06:45:56
-
-Results:
-  Open ports: 4
-  Services: 4
-  Vulnerabilities: 0
-```
-
-### 4. Active Vulnerability Testing
-
-Run behavioral tests against target services to verify vulnerabilities.
-
-#### List Available Tests
+Run behavioral tests against services to verify specific vulnerabilities — safe by default, no exploitation:
 
 ```
 $ openorb test 127.0.0.1 --list
@@ -297,94 +260,24 @@ http-trace           http            Safe -
 Total: 8 tests
 ```
 
-#### Run All Tests
-
-```
-$ openorb test 127.0.0.1 --all --max-risk low
-
-Active Vulnerability Testing
-  Target: 127.0.0.1
-  Ports: [80, 443, 22, 21, 25, 6379, 27017, 3306]
-  Max risk: Low
-  Mode: All tests
-
-Results:
-----------------------------------------------------------------------
-Safe         http-trace           127.0.0.1:80 (0ms)
-Error        ssh-weak-algos       127.0.0.1:22 (0ms)
-             Test error: Connection failed: Connection refused (os error 111)
-Error        ftp-anon             127.0.0.1:21 (0ms)
-             Test error: Connection failed: Connection refused (os error 111)
-Error        redis-noauth         127.0.0.1:6379 (0ms)
-             Test error: Connection failed: Connection refused (os error 111)
-Error        mongodb-noauth       127.0.0.1:27017 (0ms)
-             Test error: Connection failed: Connection refused (os error 111)
-Error        mysql-nopassword     127.0.0.1:3306 (0ms)
-             Test error: Connection failed: Connection refused (os error 111)
-----------------------------------------------------------------------
-Summary: 8 tests | 0 vulnerable | 1 safe | 7 errors | 0 skipped
-```
-
-#### Run Specific Test
-
 ```bash
-# Test for Heartbleed
+# Run all safe tests
+openorb test 192.168.1.1 --all --max-risk safe
+
+# Test for Heartbleed (CVE-2014-0160)
 openorb test 192.168.1.1 --cve CVE-2014-0160
 
-# Test specific ID
-openorb test 192.168.1.1 --id ftp-anon
-
-# Specify ports
-openorb test 192.168.1.1 -p 443 --id heartbleed
+# Test specific vulnerability
+openorb test 192.168.1.1 --id redis-noauth
 ```
 
-### 5. CVE Database Management
+### REST API Server
 
-#### Sync from NVD
+Built-in API server (Axum) for integrating OpenOrb with dashboards, SIEM systems, and CI/CD pipelines:
 
 ```bash
-# Sync last 30 days of CVEs
-openorb sync --days 30
-
-# Sync all sources (NVD + CISA KEV + EPSS scores)
-openorb sync --all
-
-# Sync CISA Known Exploited Vulnerabilities only
-openorb sync --kev
-
-# Sync EPSS scores only
-openorb sync --epss
-```
-
-#### Search CVEs
-
-```
-$ openorb search nginx
-
-CVE Search Results
-  Product: nginx
-  Found: 0 vulnerabilities
-```
-
-```bash
-# Search with version filter
-openorb search nginx --version 1.26.3
-
-# Filter by severity
-openorb search apache --severity high
-```
-
-### 6. REST API Server
-
-```bash
-# Start API server
 openorb server --port 8080 --host 0.0.0.0
-
-# With custom database path
-openorb server --port 8080 --db /path/to/cve_database.db
 ```
-
-**API Endpoints:**
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -392,15 +285,15 @@ openorb server --port 8080 --db /path/to/cve_database.db
 | POST | `/api/v1/scans` | Create scan |
 | GET | `/api/v1/scans` | List scans |
 | GET | `/api/v1/scans/:id` | Get scan details |
-| POST | `/api/v1/agents/register` | Register agent |
-| POST | `/api/v1/agents/:id/inventory` | Submit inventory |
-| GET | `/api/v1/agents` | List agents |
-| GET | `/api/v1/cve/search?product=nginx` | Search CVEs |
-| GET | `/api/v1/dashboard/summary` | Dashboard stats |
+| POST | `/api/v1/agents/register` | Register endpoint agent |
+| POST | `/api/v1/agents/:id/inventory` | Submit software inventory |
+| GET | `/api/v1/agents` | List registered agents |
+| GET | `/api/v1/cve/search?product=nginx` | Search CVE database |
+| GET | `/api/v1/dashboard/summary` | Dashboard statistics |
 
-### 7. Endpoint Agent
+### Endpoint Agent
 
-Collects software inventory from endpoints and reports to a central server.
+Cross-platform agent that collects software inventory from endpoints and reports to the OpenOrb server for centralized vulnerability management:
 
 ```bash
 # Run once and exit
@@ -408,79 +301,114 @@ openorb-agent --server https://server:8080 --api-key KEY --once
 
 # Run as daemon (scan every hour)
 openorb-agent --server https://server:8080 --api-key KEY --interval 3600
-
-# Debug mode
-openorb-agent --server https://server:8080 --api-key KEY --debug
 ```
 
-**Agent Help:**
-```
-$ openorb-agent --help
-
-OpenOrb Endpoint Agent
-
-Usage: openorb-agent [OPTIONS] --server <SERVER> --api-key <API_KEY>
-
-Options:
-  -s, --server <SERVER>      Server URL
-  -a, --api-key <API_KEY>    API key
-  -i, --interval <INTERVAL>  Scan interval in seconds [default: 3600]
-      --once                 Run once (don't daemon)
-  -d, --debug                Debug logging
-  -h, --help                 Print help
-```
-
-**Supported Package Managers:**
-
-| Platform | Sources |
-|----------|---------|
-| Linux | dpkg, rpm, snap, flatpak, pip, npm |
-| macOS | system_profiler, homebrew, pip, npm |
-| Windows | Registry (Uninstall keys), PowerShell Get-Service |
+| Platform | Package Sources |
+|----------|----------------|
+| **Linux** | dpkg, rpm, snap, flatpak, pip, npm |
+| **macOS** | system_profiler, homebrew, pip, npm |
+| **Windows** | Registry (Uninstall keys), PowerShell Get-Service |
 
 ---
 
 ## Risk Scoring
 
-OpenOrb calculates risk scores using:
+OpenOrb calculates prioritized risk scores combining multiple threat intelligence signals:
 
 ```
-Risk = CVSS * Confidence * EPSS * Asset Criticality * Multipliers
+Risk = CVSS × Confidence × EPSS × Asset Criticality × Multipliers
 ```
 
 | Factor | Description |
 |--------|-------------|
-| **CVSS** | Base vulnerability severity (0-10) |
+| **CVSS** | Base vulnerability severity (0–10) from NVD |
 | **Confidence** | Match quality: exact (0.95), range (0.70), product-only (0.40) |
-| **EPSS** | Exploit Prediction Scoring System probability (0-1) |
+| **EPSS** | Exploit Prediction Scoring System — probability of exploitation (0–1) |
 | **KEV** | 1.5x multiplier for CISA Known Exploited Vulnerabilities |
 | **Exploit** | 1.3x multiplier when public exploits exist |
-| **Criticality** | Asset criticality: critical (2.0), high (1.5), medium (1.0), low (0.5) |
+| **Criticality** | Asset importance: critical (2.0), high (1.5), medium (1.0), low (0.5) |
+
+---
 
 ## Architecture
 
 ```
-openorb (9 MB)
+openorb (9 MB single binary)
 ├── discovery/        Port scanning + service detection
-│   ├── scanner.rs       TCP connect (async, semaphore concurrency)
-│   ├── syn_scanner.rs   SYN scan (pnet raw sockets)
-│   ├── afpacket.rs      AF_PACKET + MMAP zero-copy (Linux, 1-5M pps)
-│   ├── service.rs       Banner grabbing + SMB negotiation
+│   ├── scanner.rs       TCP connect scan (async, tokio semaphore)
+│   ├── syn_scanner.rs   SYN scan (pnet raw sockets, rate-limited)
+│   ├── afpacket.rs      AF_PACKET + MMAP zero-copy ring buffer (1-5M pps)
+│   ├── service.rs       Banner grabbing (HTTP, SSH, FTP, SMB, MySQL, Redis, MongoDB)
 │   └── models.rs        Host, ServiceInfo, ParsedVersion
-├── vulndb/           CVE database + matching
-│   ├── database.rs      SQLite store, NVD/EPSS/KEV sync, risk scoring
-│   ├── scanner.rs       Service-to-CVE matching
-│   ├── cpe.rs           CPE 2.3 parsing + version comparison
+├── vulndb/           CVE database + matching engine
+│   ├── database.rs      SQLite, NVD/EPSS/KEV sync, version-range matching
+│   ├── scanner.rs       Service-to-CVE matching with confidence scoring
+│   ├── cpe.rs           CPE 2.3 parsing + semantic version comparison
 │   ├── active_tests.rs  YAML-based vulnerability probes
 │   └── models.rs        Vulnerability, VulnMatch, Severity
-├── api/              REST API (Axum)
-├── agent/            Endpoint software inventory
-└── plugins/          Protocol detection (Modbus ICS/SCADA)
+├── api/              REST API (Axum framework)
+├── agent/            Endpoint software inventory collector
+└── plugins/          Protocol detection plugins (Modbus ICS/SCADA)
 
 openorb-agent (4 MB)
-└── Endpoint agent binary (register, collect, report)
+└── Standalone endpoint agent (register, collect, report)
 ```
+
+---
+
+## CLI Reference
+
+```
+$ openorb --help
+OpenOrb - Network Vulnerability Scanner
+
+Usage: openorb [OPTIONS] <COMMAND>
+
+Commands:
+  scan      Scan target for open ports and vulnerabilities
+  sync      Sync CVE database from NVD or external source
+  search    Search CVE database
+  server    Start API server
+  discover  Step 1: Fast port discovery (no banner grab)
+  grab      Step 2: Banner grab for discovered ports
+  match     Step 3: Match CVEs for discovered services
+  scans     List recent scans
+  status    Show scan status and results
+  test      Run active vulnerability tests
+
+Options:
+  -d, --debug    Enable debug logging
+  -h, --help     Print help
+  -V, --version  Print version
+```
+
+### Scan Options
+
+```
+openorb scan <TARGET> [OPTIONS]
+
+  -p, --ports <PORTS>          Ports to scan (e.g., 22,80,443 or 1-1000)
+      --top-ports <N>          Scan top N common ports
+      --all-ports              Scan all 65535 ports
+      --no-vuln                Skip vulnerability check
+  -o, --output <FILE>          Output file (JSON)
+      --timeout <MS>           Port scan timeout in ms [default: 1000]
+  -m, --method <METHOD>        connect | syn | afpacket | auto [default: auto]
+      --rate <PPS>             Packets per second limit [default: 1000]
+      --json                   Output as JSON
+```
+
+---
+
+## Use Cases
+
+- **Penetration testing** — Discover attack surface and known CVEs before engagement
+- **Vulnerability assessment** — Continuous scanning with NVD sync and EPSS prioritization
+- **Asset discovery** — Map network services and software versions across infrastructure
+- **Compliance auditing** — Verify patch levels against CISA KEV and NVD databases
+- **CI/CD security gates** — REST API integration for automated vulnerability checks
+- **ICS/SCADA security** — Modbus protocol detection plugin for industrial networks
 
 ## License
 
-MIT
+[MIT](LICENSE) — Copyright 2025 Seekers Lab

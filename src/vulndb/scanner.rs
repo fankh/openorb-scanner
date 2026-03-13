@@ -38,7 +38,14 @@ impl<'a> VulnerabilityScanner<'a> {
 
         for (port, service_info) in &host.services {
             let service = &service_info.service;
-            let version = service_info.version.as_deref().unwrap_or("");
+            // Use parsed_version.core (clean version like "1.26.3") for CPE matching,
+            // falling back to raw version string only if parsing wasn't available
+            let version = service_info
+                .parsed_version
+                .as_ref()
+                .map(|pv| pv.core.as_str())
+                .or(service_info.version.as_deref())
+                .unwrap_or("");
 
             // Get products to search for this service
             let mut products: Vec<String> = Self::SERVICE_PRODUCTS
