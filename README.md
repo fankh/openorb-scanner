@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
+[![Release](https://img.shields.io/github/v/release/fankh/openorb-scanner)](https://github.com/fankh/openorb-scanner/releases/latest)
 
 **OpenOrb** is an open-source, high-performance network vulnerability scanner written in Rust. It combines port scanning, service/banner detection, and CVE matching in a single tool — an open-source alternative to Nmap + Nessus for vulnerability assessment.
 
@@ -34,30 +35,106 @@
 
 ## Quick Start
 
-### Installation
+### Download
+
+Pre-compiled binaries (Linux x86_64):
+
+> **[Download latest release](https://github.com/fankh/openorb-scanner/releases/latest)**
+>
+> - `openorb` (9 MB) — main scanner
+> - `openorb-agent` (4 MB) — endpoint agent
 
 ```bash
-# Build from source (requires Rust 1.70+)
+# Download and run
+wget https://github.com/fankh/openorb-scanner/releases/latest/download/openorb
+chmod +x openorb
+./openorb scan 192.168.1.1 --top-ports 100
+```
+
+### Build from Source
+
+```bash
+# Requires Rust 1.70+
 git clone https://github.com/fankh/openorb-scanner.git
 cd openorb-scanner
 cargo build --release
 
-# Binaries:
-#   target/release/openorb        (9 MB — main scanner)
-#   target/release/openorb-agent  (4 MB — endpoint agent)
+# Binaries at target/release/openorb and target/release/openorb-agent
 ```
 
-### First Scan
+### Scan Modes
+
+OpenOrb supports 3 scan modes via `--mode`:
+
+| Mode | Command | Description | Speed |
+|------|---------|-------------|-------|
+| **port** | `--mode port` | Open port discovery only | Fastest (~0.1s) |
+| **service** | `--mode service` | Ports + application name & version | ~8s (banner grab) |
+| **full** | `--mode full` | Ports + service + CVE matching | ~8s + CVE lookup (default) |
 
 ```bash
-# Scan top 100 ports on a target
-openorb scan 192.168.1.1 --top-ports 100
+# Port discovery only (fastest)
+openorb scan 192.168.1.1 --top-ports 100 --mode port
+
+# Port + service/version detection
+openorb scan 192.168.1.1 --top-ports 100 --mode service
+
+# Full scan with CVE matching (default)
+openorb scan 192.168.1.1 --top-ports 100 --mode full
 
 # Full port scan with JSON output
 openorb scan 10.0.0.0/24 --all-ports --json -o results.json
 
 # Fast scan with AF_PACKET (Linux, requires root)
 sudo openorb scan 10.0.0.1 --all-ports --method afpacket --rate 100000
+```
+
+**Example — Port only mode:**
+```
+$ openorb scan 127.0.0.1 --top-ports 25 --mode port
+
+Scanning target: 127.0.0.1
+Ports: 25 ports
+Mode: Port Discovery Only
+Method: TCP Connect (~6 packets/port)
+
+Discovery Complete
+  Hosts found: 1
+  Open ports: 4
+  Duration: 0s
+
+Discovered Hosts:
+----------------------------------------------------------------------
+
+127.0.0.1 (localhost)
+  80/tcp  open
+  443/tcp  open
+  5432/tcp  open
+  8080/tcp  open
+```
+
+**Example — Service mode:**
+```
+$ openorb scan 127.0.0.1 --top-ports 25 --mode service
+
+Scanning target: 127.0.0.1
+Ports: 25 ports
+Mode: Port + Service Detection
+Method: TCP Connect (~6 packets/port)
+
+Discovery Complete
+  Hosts found: 1
+  Open ports: 4
+  Duration: 8s
+
+Discovered Hosts:
+----------------------------------------------------------------------
+
+127.0.0.1 (localhost)
+  80/tcp  http            nginx/1.26.3 (Ubuntu)
+  443/tcp  http            nginx
+  5432/tcp  postgresql
+  8080/tcp  http
 ```
 
 ---
@@ -390,6 +467,7 @@ openorb scan <TARGET> [OPTIONS]
   -p, --ports <PORTS>          Ports to scan (e.g., 22,80,443 or 1-1000)
       --top-ports <N>          Scan top N common ports
       --all-ports              Scan all 65535 ports
+      --mode <MODE>            port | service | full [default: full]
       --no-vuln                Skip vulnerability check
   -o, --output <FILE>          Output file (JSON)
       --timeout <MS>           Port scan timeout in ms [default: 1000]
