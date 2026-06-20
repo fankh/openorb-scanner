@@ -305,11 +305,11 @@ openorb (single binary)
 │   ├── scanner.rs       TCP connect scan (async, tokio semaphore)
 │   ├── syn_scanner.rs   SYN scan (pnet raw sockets, rate-limited)
 │   ├── afpacket.rs      AF_PACKET + MMAP zero-copy ring buffer (1-5M pps)
-│   ├── service.rs       Banner grabbing (HTTP, SSH, FTP, SMB, MySQL, Redis, MongoDB)
+│   ├── service.rs       Banner grabbing (HTTP, SSH, FTP, SMB, MySQL, PostgreSQL, Redis, MongoDB)
 │   └── models.rs        Host, ServiceInfo, ParsedVersion
 ├── storage/          SQLite persistence (scans, ports, services)
 ├── api/              REST API (Axum framework)
-└── plugins/          Protocol detection plugins (Modbus ICS/SCADA)
+└── plugins/          Experimental protocol-plugin scaffolding (Modbus; library-only, not yet exposed via CLI)
 ```
 
 ---
@@ -360,7 +360,6 @@ openorb scan <TARGET> [OPTIONS]
 - **Attack surface mapping** — Discover open ports and running services before an engagement
 - **Network inventory** — Continuous port/service scanning with REST API integration
 - **CI/CD security gates** — REST API integration for automated exposure checks
-- **ICS/SCADA discovery** — Modbus protocol detection plugin for industrial networks
 
 ## License
 
